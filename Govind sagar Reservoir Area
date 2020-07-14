@@ -1,0 +1,107 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = 
+    /* color: #d63000 */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[78.38146455693362, 24.682075920842237],
+          [78.38146455693362, 24.608276419909703],
+          [78.44394929814456, 24.608276419909703],
+          [78.44394929814456, 24.682075920842237]]], null, false);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+var s2 = ee.ImageCollection("COPERNICUS/S2");
+
+var cloudfunction_ST2 = function(image){
+  //use add the cloud likelihood band to the image
+  var quality = image.select("QA60").unmask();
+  //get pixels above the threshold
+  var cloud01 = quality.gt(0);
+  //create a mask from high likelihood pixels
+  var cloudmask = image.mask().and(cloud01.not());
+  //mask those pixels from the image
+  return image.updateMask(cloudmask);
+};
+
+var s2 = s2.map(cloudfunction_ST2);
+
+var apr2019s2min = s2.filterDate('2019-01-01','2019-01-31').min().clip(geometry);
+var may2019s2min = s2.filterDate('2019-02-01','2019-02-28').min().clip(geometry);
+var jun2019s2min = s2.filterDate('2019-03-01','2019-03-31').min().clip(geometry);
+var jul2019s2min = s2.filterDate('2019-10-01','2019-10-31').min().clip(geometry);
+var aug2019s2min = s2.filterDate('2019-11-01','2019-11-30').min().clip(geometry);
+var sep2019s2min = s2.filterDate('2019-12-01','2019-12-31').min().clip(geometry);
+
+var apr2019ndwi = apr2019s2min.normalizedDifference(['B3', 'B8']);
+var may2019ndwi = may2019s2min.normalizedDifference(['B3', 'B8']);
+var jun2019ndwi = jun2019s2min.normalizedDifference(['B3', 'B8']);
+var jul2019ndwi = jul2019s2min.normalizedDifference(['B3', 'B8']);
+var aug2019ndwi = aug2019s2min.normalizedDifference(['B3', 'B8']);
+var sep2019ndwi = sep2019s2min.normalizedDifference(['B3', 'B8']);
+
+Map.addLayer(apr2019ndwi, {min: 0, max:1, palette: ['FFFFFF','9999FF','0000FF','000099']},'April');
+Map.addLayer(may2019ndwi, {min: 0, max:1, palette: ['FFFFFF','9999FF','0000FF','000099']},'May');
+Map.addLayer(jun2019ndwi, {min: 0, max:1, palette: ['FFFFFF','9999FF','0000FF','000099']},'June');
+Map.addLayer(jul2019ndwi, {min: 0, max:1, palette: ['FFFFFF','9999FF','0000FF','000099']},'July');
+Map.addLayer(aug2019ndwi, {min: 0, max:1, palette: ['FFFFFF','9999FF','0000FF','000099']},'August');
+Map.addLayer(sep2019ndwi, {min: 0, max:1, palette: ['FFFFFF','9999FF','0000FF','000099']},'September');
+
+var watthres = 0.1;
+
+var watapr = apr2019ndwi.gt(watthres);
+var watmay = may2019ndwi.gt(watthres);
+var watjun = jun2019ndwi.gt(watthres);
+var watjul = jul2019ndwi.gt(watthres);
+var wataug = aug2019ndwi.gt(watthres);
+var watsep = sep2019ndwi.gt(watthres);
+
+// Get Area for an Image
+var getArea = function(image, key, feature) {   
+  var areaDict = image.multiply(ee.Image.pixelArea()).reduceRegion({       
+    reducer: ee.Reducer.sum(),        
+    geometry: feature,        
+    scale: 10,       
+    maxPixels: 5e12     
+    
+  });
+  return areaDict.get(key); 
+}
+ 
+var aprarea = ee.Number(getArea(watapr,'nd',geometry)).divide(1000000);
+print('Total Surface Water Area for April 2019: ',aprarea,'sq. km');
+var mayarea = ee.Number(getArea(watmay,'nd',geometry)).divide(1000000);
+print('Total Surface Water Area for May 2019: ',mayarea,'sq. km');
+var junarea = ee.Number(getArea(watjun,'nd',geometry)).divide(1000000);
+print('Total Surface Water Area for June 2019: ',junarea,'sq. km');
+var jularea = ee.Number(getArea(watjul,'nd',geometry)).divide(1000000);
+print('Total Surface Water Area for July 2019: ',jularea,'sq. km');
+var augarea = ee.Number(getArea(wataug,'nd',geometry)).divide(1000000);
+print('Total Surface Water Area for August 2019: ',augarea,'sq. km');
+var separea = ee.Number(getArea(watsep,'nd',geometry)).divide(1000000);
+print('Total Surface Water Area for September 2019: ',separea,'sq. km');
+
+
+print(aprarea);
+var feature1 = ee.Feature(null, {area: aprarea, month:'April'});
+var feature2 = ee.Feature(null, {area: mayarea, month:'May'});
+var feature3 = ee.Feature(null, {area: junarea, month: 'June'});
+var feature4 = ee.Feature(null, {area: jularea, month: 'July'});
+var feature5 = ee.Feature(null, {area: augarea, month: 'August'});
+var feature6 = ee.Feature(null, {area: separea, month: 'September'});
+
+// Wrap the Feature in a FeatureCollection for export.
+var featureCollection = ee.FeatureCollection([feature1, feature2, feature3, feature4, feature5, feature6]);
+
+// Export the FeatureCollection.
+Export.table.toDrive({
+  collection: featureCollection,
+  description: 'exportTableExample',
+  fileFormat: 'CSV'
+});
+
+print(feature1);
+
+

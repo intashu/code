@@ -1,0 +1,63 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var chirps = ee.ImageCollection("UCSB-CHG/CHIRPS/PENTAD"),
+    table = ee.FeatureCollection("users/CODES/india_district");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+
+// set start and end year
+var startyear = 2000; 
+var endyear = 2019; 
+
+// make a date object
+var startdate = ee.Date.fromYMD(startyear,1, 1);
+var enddate = ee.Date.fromYMD(endyear + 1, 1, 1);
+
+// make a list with years
+var years = ee.List.sequence(startyear, endyear);
+
+
+var india_dist = ee.FeatureCollection(table).filterMetadata('STATE','equals','HIMACHAL PRADESH')
+var himachal_dist = ee.FeatureCollection(india_dist).filterMetadata('DISTRICT','equals','Hamirpur')
+
+var annualPrecip = ee.ImageCollection.fromImages(
+  years.map(function (year) {
+    var annual = chirps
+        .filter(ee.Filter.calendarRange(year, year, 'year'))
+        .sum();
+    return annual
+        .set('year', year)
+        .set('system:time_start', ee.Date.fromYMD(year, 1, 1));
+}));
+
+
+
+var title = {
+  title: 'Annual precipitation',
+  hAxis: {title: 'Time'},
+  vAxis: {title: 'Precipitation (mm)'},
+};
+
+var chart = ui.Chart.image.seriesByRegion({
+  imageCollection: annualPrecip, 
+  regions: himachal_dist,
+  reducer: ee.Reducer.mean(),
+  band: 'precipitation',
+  scale: 2500,
+  xProperty: 'system:time_start',
+  seriesProperty: 'SITE'
+}).setOptions(title)
+  .setChartType('ColumnChart');
+  
+  print(chart);
+
+
+var annualMean = annualPrecip.mean().clip(himachal_dist);
+
+var pViz = {
+  min: 0, 
+  max: 1400, 
+  palette: '000000, 0000FF, FDFF92, FF2700, FF00E7'
+};
+
+
+Map.centerObject(himachal_dist, 5);
+Map.addLayer(annualMean, pViz, 'mean yearly P');

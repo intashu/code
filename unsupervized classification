@@ -1,0 +1,60 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var re = 
+    /* color: #d63000 */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[80.62445651431383, 27.286031041649554],
+          [80.62445651431383, 26.36446470511178],
+          [81.59125338931383, 26.36446470511178],
+          [81.59125338931383, 27.286031041649554]]], null, false),
+    region = ee.FeatureCollection("users/CODES/india_district");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+var s2 = ee.ImageCollection("COPERNICUS/S2");
+function maskS2clouds(image) {
+  var qa = image.select('QA60')
+
+  // Bits 10 and 11 are clouds and cirrus, respectively.
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+
+  // Both flags should be set to zero, indicating clear conditions.r
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0).and(
+             qa.bitwiseAnd(cirrusBitMask).eq(0))
+  //var ndvi= image.normalizedDifference(['B8', 'B4']).select([0], ['NDVI']).set('time_start',image.get('system:time_start')
+//var ndvi = image.normalizedDifference(['B8', 'B4']).rename('NDVI');
+//var ndwi = image.normalizedDifference(['B3', 'B8']).rename('NDWI');
+  return image.updateMask(mask);
+}
+var s2ndvi = s2.map(maskS2clouds)
+var collection_one = s2ndvi.filterDate('2019-06-01', '2019-07-31').filterBounds(region)
+var result = collection_one.select('B12', 'B11','B8','B4', 'B3').mean();
+var image= result.clip(region);
+
+// Load a pre-computed Landsat composite for input.
+var input = ee.Image(image);
+print(input)
+
+// Display the sample region.
+Map.centerObject(region)
+Map.addLayer(ee.Image().paint(region, 0, 2), {}, 'region');
+
+// Make the training dataset.
+var training = input.sample({
+  region: region,
+  scale: 30,
+  numPixels: 5000
+});
+
+// Instantiate the clusterer and train it.
+var clusterer = ee.Clusterer.wekaKMeans(15).train(training);
+
+// Cluster the input using the trained clusterer.
+var result = input.cluster(clusterer);
+
+// Display the clusters with random colors.
+Map.addLayer(result.randomVisualizer(), {}, 'clusters');

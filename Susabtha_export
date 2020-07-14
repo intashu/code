@@ -1,0 +1,60 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var imageCollection = ee.ImageCollection("NOAA/GFS0P25"),
+    aoi = 
+    /* color: #d63000 */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[79.1588417688592, 28.121597524816824],
+          [79.1588417688592, 26.166478188243946],
+          [81.4659706751092, 26.166478188243946],
+          [81.4659706751092, 28.121597524816824]]], null, false);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+Map.centerObject(aoi, 5);
+var forecast_date = ee.Date('2018-07-05')
+var dataset = ee.ImageCollection('NOAA/GFS0P25')
+                  .filter(ee.Filter.date('2018-07-05','2019-07-06'))
+                  .filterMetadata('forecast_hours', 'greater_than', 0)
+                  .filterDate(forecast_date.advance(0,'hour'))
+                  .select('total_precipitation_surface');
+//                  .filter(ee.Filter.Time('18:00:00'));
+print(dataset,'precipCollection')
+
+/**var f049 = ee.Image('NOAA/GFS0P25/2020030818F049')
+                .select('total_precipitation_surface');
+*/                
+
+var visParams = {
+  min: 0.0,
+  max: 10,
+  palette: ['red', 'purple', 'yellow','cyan', 'green', 'blue'],
+};
+//Map.setCenter(71.72, 52.48, 0);
+//Map.addLayer(dataset, visParams, 'total_precipitation_surface');
+Map.addLayer(dataset, visParams, 'total_precipitation_surface');
+Map.addLayer(aoi);
+
+
+// pkg_export ---------------------------------------------------------
+
+var options = {
+    reducers : ['mean'],  // 1th: non-buffer; 2th: buffer; Only one means no buffer
+    buffer   : false,      // whether to use buffer
+    list     : false, 
+    folder   : '', // drive folder
+    fileFormat: 'csv'      // 'csv' or 'geojson'
+    // scale    : 1000
+};
+
+var pkg_export = require('users/kongdd/public:pkg_export.js');
+//var datExp = pkg_export.spClipImgCol(dataset, aoi, "totalPrecipitationSurface", options);
+ 
+Export.table.toDrive({
+  collection: dataset,
+  description:'totalPrecipitationSurface',
+  fileFormat: 'CSV'
+});

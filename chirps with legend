@@ -1,0 +1,81 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = 
+    /* color: #0b4a8b */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[76.98495788564962, 28.780133139174694],
+          [76.98495788564962, 28.29514619796944],
+          [77.61667175283712, 28.29514619796944],
+          [77.61667175283712, 28.780133139174694]]], null, false);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+var rain = chirps.select('precipitation').filterDate('2018-01-01','2018-12-31').sum()
+var rain_clip = rain.clip(aoi)
+var rain_viz ={
+  min :0,
+  max:1000,
+  palette:['red','yellow','green','cyan']
+}
+Map.addLayer(rain_clip,rain_viz,"delhi rainfall")
+
+
+// set position of panel
+var legend = ui.Panel({
+  style: {
+    position: 'bottom-left',
+    padding: '8px 15px'
+  }
+});
+ 
+ 
+// Create legend title
+var legendTitle = ui.Label({
+  value: 'Rainfall (mm)',
+  style: {
+    fontWeight: 'bold',
+    fontSize: '18px',
+    margin: '0 0 4px 0',
+    padding: '0'
+    }
+});
+
+ // Add the title to the panel
+legend.add(legendTitle); 
+
+// create the legend image
+var lon = ee.Image.pixelLonLat().select('latitude');
+var gradient = lon.multiply((rain_viz.max-rain_viz.min)/100.0).add(rain_viz.min);
+var legendImage = gradient.visualize(rain_viz);
+
+// create text on top of legend
+var panel = ui.Panel({
+    widgets: [
+      ui.Label(rain_viz['max'])
+    ],
+  });
+
+legend.add(panel);
+  
+// create thumbnail from the image
+var thumbnail = ui.Thumbnail({
+  image: legendImage, 
+  params: {bbox:'0,0,10,100', dimensions:'10x200'},  
+  style: {padding: '1px', position: 'bottom-center'}
+});
+
+// add the thumbnail to the legend
+legend.add(thumbnail);
+
+// create text on top of legend
+var panel = ui.Panel({
+    widgets: [
+      ui.Label(rain_viz['min'])
+    ],
+  });
+
+legend.add(panel);
+
+Map.add(legend);

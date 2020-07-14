@@ -1,0 +1,147 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = 
+    /* color: #d63000 */
+    /* shown: false */
+    ee.Geometry.Polygon(
+        [[[78.16443867182625, 31.487487390898632],
+          [78.17473835444343, 31.475190245399805],
+          [78.20092892851824, 31.440172258001045],
+          [78.21054196562761, 31.435778386168394],
+          [78.22221493926043, 31.429333668229084],
+          [78.2314846536159, 31.425232253415103],
+          [78.24556088652605, 31.421130659206234],
+          [78.25311398711199, 31.42288850726163],
+          [78.2538006326198, 31.42786889781873],
+          [78.2479641458034, 31.43870765694416],
+          [78.24178433623308, 31.442808482225],
+          [78.23354459013933, 31.447494919951772],
+          [78.22152829375261, 31.455109881307074],
+          [78.2095119973659, 31.459209988703773],
+          [78.19237526014115, 31.47412785948807],
+          [78.18791206434037, 31.49110939950961],
+          [78.18550880506302, 31.501940840463902],
+          [78.16456611707474, 31.4949151838901]]]);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+
+Map.centerObject(geometry,12);
+
+//Flood inundation image
+var image20 = ee.Image("users/sasanapurisantoshkumar/Flood_Studies/Baspa_Flood/Baspa_DAMBRK");
+
+// Image collection ceated by each band of inundation image 
+var collection_new = ee.ImageCollection.fromImages([image20.select('b1'),image20.select('b2'),
+                      image20.select('b3'),image20.select('b4'),image20.select('b5'),image20.select('b6'),
+                      image20.select('b7'),image20.select('b8'),image20.select('b9'),image20.select('b10'),
+                      image20.select('b11'),image20.select('b12'),image20.select('b13'),image20.select('b14'),
+                      image20.select('b15'),image20.select('b16'),image20.select('b17'),image20.select('b18'),
+                      image20.select('b19'),image20.select('b20'),image20.select('b21'),image20.select('b22'),
+                      image20.select('b23'),image20.select('b24'),image20.select('b25'),image20.select('b26'),
+                      image20.select('b27'),image20.select('b28'),image20.select('b29')]);
+
+print(collection_new)
+
+var palette = ['ca8fff','ff43df','ff105d'];
+
+print(collection_new);
+
+
+var args = {
+  crs: 'EPSG:32643',  // Maps Mercator
+  dimensions: '200',
+  region: geometry,
+  min: 0,
+  max: 10,
+  palette: ['ca8fff','ff43df','ff105d'],
+  framesPerSecond: 12,
+};
+
+
+var thumb = ui.Thumbnail({
+  // Specifying a collection for "image" animates the sequence of images.
+  image: collection_new,
+  params: args,
+  style: {
+    position: 'bottom-left',
+    border: '1px solid black',
+    backgroundColor: "red",
+    width: '360px'
+  }});
+//Map.add(thumb);
+
+//print(thumb);
+
+
+
+var thumb1 = ui.Thumbnail({
+  // Specifying a collection for "image" animates the sequence of images.
+  image: collection_new,
+  params: args});
+
+var gifParams = {
+  'region': geometry,
+  'dimensions': 600,
+  'crs': 'EPSG:32643',
+  'framesPerSecond': 7,
+  'format': 'gif'
+};
+
+var args1 = {
+    min: 0,
+  max: 6,
+  palette: ['ca8fff','ff43df','ff105d'],
+};
+
+
+var rgbVis = collection_new.map(function(img) {
+  return img.visualize(args1);
+});
+
+
+//var col = collection_new.visualize(args);
+
+print("URL of Thumbnail",rgbVis.getVideoThumbURL(gifParams));
+
+
+var is_bands = ['b1','b2','b3','b4','b5','b6','b7','b8','b9','b10','b11','b12','b13','b14','b15','b16','b17','b18','b19','b20','b21','b22','b23','b24','b25','b26','b27','b28','b29'];
+var time = ['0', '1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28'];
+var image = image20.select(is_bands).rename(time);
+
+var names = image.bandNames();
+//print(names);
+
+var command = function(value){
+  value = names.get(value);
+  //Map.addLayer(image20.select([value]), {min: 0, max: 8, palette: ['8bb4ff','337bff','1512ff']});
+  var layer = ui.Map.Layer(image.select([value]), args1, value + 'depth');
+  Map.layers().set(0, layer);
+};
+
+
+var slider = ui.Slider({
+  min: 0,
+  max: 28,
+  step: 1,
+  style: {stretch: 'horizontal', width:'250px', position: 'top-left',whiteSpace: 'nowrap'},
+  onChange: command,
+});
+
+slider.setValue(0);
+
+//Map.add(slider);
+
+
+var header = ui.Label('Hypothetical Baspa Dam break flood change with time', {fontSize: '15px', color: 'red'});
+
+var text = ui.Label(
+    'Results from analysis of Baspa Dam break using HEC-RAS',
+    {fontSize: '11px'});
+    
+var toolPanel = ui.Panel([header, text], 'flow', {width: '400px'});
+ui.root.widgets().add(toolPanel);
+toolPanel.add(ui.Label('Time stpe is 30 minutes', {'font-size': '14px', 'fontWeight': '100', color: 'blue'}));
+
+toolPanel.add(ui.Label('Use slider to change the dam break flood', {'font-size': '14px', 'fontWeight': '100'}));
+toolPanel.add(slider);
+
+toolPanel.add(ui.Label('Baspa dam break flood change with time', {'font-size': '14px', 'fontWeight': '100', color: 'blue'}));
+toolPanel.add(thumb);

@@ -1,0 +1,24 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = /* color: #98ff00 */ee.Geometry.Polygon(
+        [[[76.5768260972386, 13.021836980069873],
+          [76.5768260972386, 12.7286482054372],
+          [76.91465568708234, 12.7286482054372],
+          [76.91465568708234, 13.021836980069873]]], null, false),
+    chirps = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+
+var start = '2018-01-01'
+var end = '2018-02-28'
+
+var filtered = chirps.filterDate(start, end);
+var cumulative = filtered.sum();
+
+Map.addLayer(cumulative, {min: 0, max: 50, palette: ['white', 'cyan', 'blue']});
+
+var mean = cumulative.reduceRegion({
+  reducer: ee.Reducer.mean(),
+  geometry: geometry,
+  scale: 1000,
+})
+
+print(mean.get('precipitation'))

@@ -1,0 +1,55 @@
+
+// Chart the average rainfall per month across all prefectures in Japan.
+// The regions we're interested in, pulled from a FusionTable.
+var fc = ee.FeatureCollection('users/simonf/pref');
+// Source precipitation data.
+var precip = ee.ImageCollection('NOAA/PERSIANN-CDR')
+  .filterDate('2014-01-01', '2015-01-01');
+  
+// Generate a server-side list of month-numbers.  
+var monthList = ee.List.sequence(1, 12);
+// Map over the list, converting each number to an ee.Featurereg number
+// with the given number set as a 'month' property.
+var monthFeatures = monthList.map(function f(e) {
+    // The geometry is set to "null" here, since this 
+    // is just a container for the "month" property
+    return ee.Feature(null, {month: e});
+  });
+// Turn the list of features into a proper ee.FeatureCollection
+var monthCollection = ee.FeatureCollection(monthFeatures);
+// Do a saveAll join for all images matching this month.
+var join = ee.Join.saveAll('images');
+var filter = ee.Filter.equals({
+  leftField: 'month',
+  rightField: 'month'
+});
+var imagesByMonth = join.apply(monthCollection, precip, filter);
+print("images by month", imagesByMonth)
+// For each month of images, reduce down to a single image.
+var srtm = ee.Image('USGS/SRTMGL1_003');
+var sums = imagesByMonth.map(function f(e) {
+  var images = ee.ImageCollection.fromImages(e.get('images'));
+  return ee.Image(images.sum().divide(10).set('month', e.get('month')))
+    .updateMask(srtm.gt(0));
+});
+print("monthly sum images", sums)
+var months = sums.toList(12);
+// Add some months to the map.
+var jan = ee.Image(months.get(0));
+var jun = ee.Image(months.get(5));
+var jul = ee.Image(months.get(6));
+var aug = ee.Image(months.get(7));
+var oct = ee.Image(months.get(9));
+var vis = {min:0, max:25, palette: '000000,FF0000,00FF00,0000FF'};
+Map.addLayer(jan, vis, "January");
+Map.addLayer(jun, vis, "June");
+Map.addLayer(jul, vis, "July");
+Map.addLayer(aug, vis, "August");
+Map.addLayer(oct, vis, "October");
+// Scale at which to do the computation
+var scale = 10000;
+// Create a chart of the averages per month, per prefecture.
+var avgByRegion = Chart.image.seriesByRegion(
+  sums, fc, ee.Reducer.mean(), 'precipitation', scale, 'month', 'Prefettura');
+print(avgByRegion);
+Map.setCenter(140, 38, 5);

@@ -1,0 +1,83 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var country = 
+    /* color: #98ff00 */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[75.84806648194085, 32.45341377585632],
+          [75.84806648194085, 25.124596305275382],
+          [95.11808601319085, 25.124596305275382],
+          [95.11808601319085, 32.45341377585632]]], null, false);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+//
+//  http://glcf.umd.edu/data/lc/
+//
+
+var modisLCover = ee.Image('MODIS/051/MCD12Q1/2013_01_01').select(0);
+// Define a palette for the 18 distinct land cover classes.
+var igbpPalette = [
+  'aec3d4', // water
+  '152106', '225129', '369b47', '30eb5b', '387242', // forest
+  '6a2325', 'c3aa69', 'b76031', 'd9903d', '91af40',  // shrub, grass
+  '111149', // wetlands
+  'cdb33b', // croplands
+  'cc0013', // urban
+  '33280d', // crop mosaic
+  'd7cdcc', // snow and ice
+  'f7e084', // barren
+  '6f6f6f'  // tundra
+]; 
+// Specify the min and max labels and the color palette matching the labels.
+Map.setCenter(84, 28, 6);
+Map.addLayer(modisLCover,{min: 0, max: 17, palette: igbpPalette},'MODIS Land Cover');
+// Create an empty image into which to paint the features, cast to byte.
+var empty = ee.Image().byte();
+// Paint all the polygon edges with the same number and width, display.
+var outline = empty.paint({
+  featureCollection: country,
+  color: 1,
+  width: 3
+});
+Map.addLayer(outline, {palette: 'FF0000'}, 'Nepal Boundary');
+var  cclasses = ee.List(modisLCover.get('Land_Cover_Type_1_class_values'));
+var cclasses_names = ['Class_00', 'Class_01','Class_02','Class_03','Class_04','Class_05','Class_06','Class_07','Class_08','Class_09','Class_10','Class_11','Class_12','Class_13','Class_14','Class_15','Class_16','Class_17'];
+var  lcover = modisLCover.eq(ee.Image.constant(cclasses))
+              .multiply(ee.Image.pixelArea())
+              .divide(10000)
+              .rename(cclasses_names);
+var  stats = lcover.reduceRegion(
+  {reducer:ee.Reducer.sum(),geometry:country,scale:500,maxPixels:500000000
+  });
+var agri = stats.get('Class_12').getInfo() + stats.get('Class_14').getInfo();
+var barren = stats.get('Class_16').getInfo();
+var urban = stats.get('Class_13').getInfo();
+var forest = stats.get('Class_01').getInfo() 
+            + stats.get('Class_02').getInfo() 
+            + stats.get('Class_03').getInfo() 
+            + stats.get('Class_04').getInfo() 
+            + stats.get('Class_05').getInfo();
+var shrub = stats.get('Class_06').getInfo() 
+            + stats.get('Class_07').getInfo()
+var grass = stats.get('Class_08').getInfo()
+            + stats.get('Class_09').getInfo() 
+            + stats.get('Class_10').getInfo();
+var waterbody = stats.get('Class_00').getInfo() 
+                + stats.get('Class_11').getInfo();
+var snowice = stats.get('Class_15').getInfo();
+var  lcClass = ['Agriculture', 'Barren Area', 'Built-Up Area', 'Forest', 'Shrubland', 'Grassland', 'Snow and Ice', 'Waterbody']
+var  lcArea = [agri, barren, urban, forest, shrub, grass, snowice, waterbody];
+//var y1 = ee.Array(lcArea);
+//var chart = ui.Chart.array.values(y, 0, lcClass);
+var chart = ui.Chart.array.values([lcArea], 1, lcClass);
+var chart1 = chart.setChartType('ColumnChart')
+      .setSeriesNames(['Area'])
+      .setOptions({
+      title: 'Land Cover',
+      hAxis: {'title': 'Classes'},
+      vAxis: {'title': 'Area (Ha)'}
+});
+print(chart1);
+ 

@@ -1,0 +1,225 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var roi = 
+    /* color: #0000ff */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[-3.4497968709269378, 55.43092922318008],
+          [-3.4497968709269378, 53.34600853196093],
+          [-0.48348827717693776, 53.34600853196093],
+          [-0.48348827717693776, 55.43092922318008]]], null, false);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+//Scripts are from: Nazmus Sazib, NASA GSFC 2017
+//See details from: https://www.mdpi.com/2072-4292/10/8/1265/htm
+//This script estimates monthly soil moisture, precipitation for the different land 
+//cover types.
+
+//var roi= matchCountry.geometry();
+Map.addLayer(roi);
+//get SM, and Precpitation data
+var SM_all_sm1 = ee.ImageCollection('NASA_USDA/HSL/soil_moisture').select('ssm');
+var SM_all_sm2 = ee.ImageCollection('NASA_USDA/HSL/soil_moisture').select('susm');
+var PRECP_all = ee.ImageCollection('UCSB-CHG/CHIRPS/PENTAD');
+//land cover types 
+var landcover = ee.Image('ESA/GLOBCOVER_L4_200901_200912_V2_3').select('landcover');
+print(landcover);
+var frequency = landcover.reduceRegion({
+  reducer:ee.Reducer.frequencyHistogram(),
+  geometry:roi,
+  scale:25000
+});
+//print(100)
+print(frequency);
+var dict = ee.Dictionary(frequency.get('landcover'));
+var sum = ee.Array(dict.values()).reduce(ee.Reducer.sum(),[0]).get([0]);
+var new_dict = dict.map(function(k,v) {
+  return ee.Number(v).divide(sum).multiply(100);
+});
+//print(new_dict);
+var highVolume = new_dict.toArray();
+var new_dict1 = dict.map(function(k,v) {
+  var t=ee.Number(k);
+  return ee.Number(v).divide(sum).multiply(100);
+});
+print(new_dict1);
+var lct_perec = ee.Array(new_dict1.values());
+print('per',lct_perec );
+var lct_per_sor=lct_perec.sort();
+var lct_length = lct_per_sor.length().int().toList();
+print(lct_length);
+var e1=ee.Number(lct_length.get(0));
+var s1=e1.subtract(5);
+print(s1);
+var lct_selec=lct_per_sor.slice(0,s1,e1).toList();
+print(lct_selec);
+var a4=lct_perec.toList();
+var index = new_dict1.keys();
+var lc1=index.get(a4.indexOf(ee.Number(lct_selec.get(4))));
+var lc2=index.get(a4.indexOf(ee.Number(lct_selec.get(3))));
+var lc3=index.get(a4.indexOf(ee.Number(lct_selec.get(2))));
+var lc4=index.get(a4.indexOf(ee.Number(lct_selec.get(1))));
+var lc5=index.get(a4.indexOf(ee.Number(lct_selec.get(0))));
+//print(lc1)
+//print(lc5)
+var names = ee.List(landcover.get('landcover_class_names'));
+var values = ee.List(landcover.get('landcover_class_values'));
+//print(names)
+//print(values)
+print('lctype1',names.get(values.indexOf(ee.Number.parse(lc1))),ee.Number.parse(lct_selec.get(4)).int());
+print('lctype2',names.get(values.indexOf(ee.Number.parse(lc2))),ee.Number.parse(lct_selec.get(3)).int());
+print('lctype3',names.get(values.indexOf(ee.Number.parse(lc3))),ee.Number.parse(lct_selec.get(2)).int());
+print('lctype4',names.get(values.indexOf(ee.Number.parse(lc4))),ee.Number.parse(lct_selec.get(1)).int());
+print('lctype5',names.get(values.indexOf(ee.Number.parse(lc5))),ee.Number.parse(lct_selec.get(0)).int());
+var landcover1=landcover.clip(roi);
+print(landcover1);
+var pViz = {
+  min: 10, 
+  max: 240, 
+  palette: '000000, 0000FF, FDFF92, FF2700, FF00E7'
+};
+//print(2000);
+var masks = landcover1.eq([ee.Number.parse(lc1),ee.Number.parse(lc2),ee.Number.parse(lc3),
+           ee.Number.parse(lc4),ee.Number.parse(lc5)]);
+print(masks);
+var addName = function(image) {
+    return image.select(
+    ['constant','constant_1','constant_2','constant_3','constant_4'], // old names
+    ['Forest', 'Cropland', 'Mosaic Vegetation','Shurbland','Sparse Vegetation']               // new names
+);
+};
+var startyear = 2012; 
+var endyear = 2019; 
+var startmonth = 1;
+var endmonth = 12;
+var startdate = ee.Date.fromYMD(startyear, startmonth, 1);
+var enddate = ee.Date.fromYMD(endyear + 1, endmonth, 1);
+var years = ee.List.sequence(startyear, endyear);
+var monthlyFunction=function(imagecol,v1){
+   var op=ee.Number(v1);
+     var months = ee.List.sequence(1, 12);
+     var monthlyVar =  ee.ImageCollection.fromImages(
+        years.map(function (y) {
+        return months.map(function(m) {
+      
+       var ann=ee.Algorithms.If(op.gt(1),
+       imagecol.filter(ee.Filter.calendarRange(y, y, 'year')).filter(ee.Filter.calendarRange(m, m, 'month')).mean().set('year', y).set('month', m).set('system:time_start', ee.Date.fromYMD(y, m, 1)),
+       imagecol.filter(ee.Filter.calendarRange(y, y, 'year')).filter(ee.Filter.calendarRange(m, m, 'month')).sum().set('year', y).set('month', m).set('system:time_start', ee.Date.fromYMD(y, m, 1)));
+      
+     
+      return ann;
+                        
+    });
+  }).flatten()
+);
+//var monthlyMean = monthlyVar.mean().clip(roi);
+//Map.addLayer(monthlyMean, pViz, 'mean monthly P');
+var meanMonthlyVar =  ee.ImageCollection.fromImages(
+  months.map(function (m) {
+    var w1 = monthlyVar.filter(ee.Filter.eq('month', m)).mean();
+    var expanded = masks.multiply(0).add(w1);
+    var w= expanded.mask(masks);
+    return w.set('month', m)
+           .set('system:time_start',ee.Date.fromYMD(1, m, 1)); 
+  }).flatten()
+);
+ 
+var collection = meanMonthlyVar.select('constant','constant_1','constant_2','constant_3','constant_4');
+var imag_coll=collection.map(addName);
+//var tert=ui.Chart.image.series(imag_coll, roi, ee.Reducer.mean(), 2500);
+return imag_coll;
+};
+var monthlyFunctionNDVI_EVI=function(imagecol,v1){
+   var op=ee.Number(v1);
+     var months = ee.List.sequence(1, 12);
+     var monthlyVar =  ee.ImageCollection.fromImages(
+        years.map(function (y) {
+        return months.map(function(m) {
+    // var n=m+1;
+     //print(m)
+      
+       var ann=ee.Algorithms.If(op.gt(1),
+       imagecol.filter(ee.Filter.calendarRange(y, y, 'year')).filter(ee.Filter.calendarRange(m, m, 'month')).max().set('year', y).set('month', m).set('system:time_start', ee.Date.fromYMD(y, m, 1)),
+       imagecol.filter(ee.Filter.calendarRange(y, y, 'year')).filter(ee.Filter.calendarRange(m, m, 'month')).max().set('year', y).set('month', m).set('system:time_start', ee.Date.fromYMD(y, m, 1)));
+      
+     
+      return ann;
+                        
+    });
+  }).flatten()
+);
+//var monthlyMean = monthlyVar.mean().clip(roi);
+//Map.addLayer(monthlyMean, pViz, 'mean monthly P');
+var meanMonthlyVar =  ee.ImageCollection.fromImages(
+  months.map(function (m) {
+    var w1 = monthlyVar.filter(ee.Filter.eq('month', m)).mean();
+    var expanded = masks.multiply(0).add(w1);
+    var w= expanded.mask(masks);
+    return w.set('month', m)
+           .set('system:time_start',ee.Date.fromYMD(2016, m, 1)); 
+  }).flatten()
+);
+ 
+var collection = meanMonthlyVar.select('constant','constant_1','constant_2','constant_3','constant_4');
+var imag_coll=collection.map(addName);
+//var tert=ui.Chart.image.series(imag_coll, roi, ee.Reducer.mean(), 2500);
+return imag_coll;
+};
+var sm_Filtered11 = SM_all_sm1.filterDate(startdate, enddate)
+  .sort('system:time_start', false)
+  .filterBounds(roi);
+//print(SM_filtered)
+var sm_Filtered22 = SM_all_sm2.filterDate(startdate, enddate)
+  .sort('system:time_start', false)
+  .filterBounds(roi);
+//print(SM_filtered)
+var filterNaN = function(image){
+    return image.updateMask(image.gte(-5).and(image.lte(2000)));
+    };
+//calculating monthly soil moisture for the region
+var sm_Filtered1 = sm_Filtered11.map(filterNaN);
+var sm_Filtered2 = sm_Filtered22.map(filterNaN);
+var prcp_Filtered = PRECP_all.filterDate(startdate, enddate)
+  .sort('system:time_start', false)
+  .filterBounds(roi);
+print(prcp_Filtered);
+  
+var monSM1= monthlyFunction(sm_Filtered1,2);
+print(monSM1);
+var monSM2= monthlyFunction(sm_Filtered2,2);
+var monchart=ui.Chart.image.series(monSM1, roi, ee.Reducer.mean(), 25000)
+  .setOptions({
+  title: "Monthly SurfaceSoilMoisture ",
+  hAxis: {title: 'Month'},
+  vAxis: {title: 'Soil Moisture (mm)'},
+  pointSize: 3,
+    
+  });
+//tert.setChartType('ScatterChart');
+print(monchart);
+var monchart=ui.Chart.image.series(monSM2, roi, ee.Reducer.mean(), 25000)
+  .setOptions({
+  title: "Monthly Sub-SurfaceSoilMoisture ",
+  hAxis: {title: 'Month'},
+  vAxis: {title: 'Soil Moisture (mm)'},
+  pointSize: 3,
+    
+  });
+//tert.setChartType('ScatterChart');
+print(monchart);
+var monPrec= monthlyFunction(prcp_Filtered,1);
+var monchart=ui.Chart.image.series(monPrec, roi, ee.Reducer.mean(), 25000)
+  .setOptions({
+  title: "Monthly precipitation ",
+  hAxis: {title: 'Month'},
+  vAxis: {title: 'Precipitation (mm)'},
+  pointSize: 3,
+    
+  });
+//tert.setChartType('ScatterChart');
+print(monchart);
+//Export the results into a csv and then read into a excel file and read in r and plot the
+//results, as in GEE plotting options is not adequate

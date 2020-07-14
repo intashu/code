@@ -1,0 +1,67 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var lakes = ee.FeatureCollection("users/spancheri/HydroLAKES_polys_v10");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Name of Script: users/spancheri/HydroLAKES/5-0-Noel_Lakes
+var list = ee.FeatureCollection(lakes) 
+//var label = new ui.Label('Click for properties');
+var inspector = ui.Panel({style: {position: 'top-left'}})
+var intro = ui.Panel([
+  ui.Label({
+    value: 'Lake Inspector',
+    style: {fontSize: '20px', fontWeight: 'bold'}
+  }),
+  ui.Label('Click a lake on the map to inspect.')
+]);
+inspector.add(intro);
+function updateText(strings) {
+  var labels = strings.map(function(s) {
+    return ui.Label(s)
+  })
+  
+  inspector.widgets().reset(labels)
+}
+// add a map layer to show selection
+var selectionLayer = ui.Map.Layer(ee.Image(), { color: 'feb24c' }, 'selection')
+Map.layers().add(selectionLayer)
+function inspect(coords) {
+  var point = ee.Geometry.Point([coords.lon, coords.lat]);
+  
+  // generated search geometry and update it
+  var scale = Map.getScale()
+  var searchRadius = 30
+  var selection = point.buffer(scale * searchRadius, scale)
+  selectionLayer.setEeObject(selection)
+  
+  // find the nearest feature (use 10 screen pixels as a search buffer)
+  var nearestFeature = list.filterBounds(selection).first()
+  
+  // server -> client
+  nearestFeature.evaluate(function(f) {
+    if(f === null) {
+      updateText(['No features found'])
+      return
+    }
+    
+    updateText([
+      'Country: ' + f.properties.Country,
+      'Continent: ' + f.properties.Continent,
+      'Average Depth: ' + f.properties.Depth_avg,
+      'Elevation: ' + f.properties.Elevation,
+      'Grand Lake ID: ' + f.properties.Grand_id,
+      'HydroLakes ID: ' + f.properties.Hylak_id,
+      'Lake Area: ' + f.properties.Lake_area,
+      'Lake Name: ' + f.properties.Lake_name,
+      'Lake Type: ' + f.properties.Lake_type,
+      'Shore Development: ' + f.properties.Shore_dev,
+      'Shore Length: ' + f.properties.Shore_len,
+      'Slope Inclination (on 100): ' + f.properties.Slope_100,
+      'Total Volume: ' + f.properties.Vol_total,
+      'Watershed Area: ' + f.properties.Wshd_area
+    ])
+  })
+}
+Map.addLayer(list)
+Map.add(inspector);
+Map.onClick(inspect)
+Map.setCenter(-94.84497, 39.01918, 10)
+Map.style().set({ cursor: 'crosshair' })

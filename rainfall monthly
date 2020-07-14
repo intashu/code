@@ -1,0 +1,73 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var basin = ee.FeatureCollection("users/CODES/Subbasin"),
+    Chirps = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+var geometry = ee.FeatureCollection(basin).filterMetadata("sbconc","equals","C2AARA")
+Map.addLayer(geometry)
+var chirps=Chirps.select("precipitation")
+
+
+
+var apr2019 = Chirps.filterDate('2019-01-01','2019-01-31').sum().clip(geometry);
+var may2019 = Chirps.filterDate('2019-02-01','2019-02-28').sum().clip(geometry);
+var jun2019 = Chirps.filterDate('2019-03-01','2019-03-31').sum().clip(geometry);
+var jul2019 = Chirps.filterDate('2019-10-01','2019-10-31').sum().clip(geometry);
+var aug2019 = Chirps.filterDate('2019-11-01','2019-11-30').sum().clip(geometry);
+var sep2019 = Chirps.filterDate('2019-12-01','2019-12-31').sum().clip(geometry);
+
+
+
+Map.addLayer(apr2019, {min: 0, max:1000, palette: ['FFFFFF','9999FF','0000FF','000099']},'April');
+Map.addLayer(may2019, {min: 0, max:1000, palette: ['FFFFFF','9999FF','0000FF','000099']},'May');
+Map.addLayer(jun2019, {min: 0, max:1000, palette: ['FFFFFF','9999FF','0000FF','000099']},'June');
+Map.addLayer(jul2019, {min: 0, max:1000, palette: ['FFFFFF','9999FF','0000FF','000099']},'July');
+Map.addLayer(aug2019, {min: 0, max:1000, palette: ['FFFFFF','9999FF','0000FF','000099']},'August');
+Map.addLayer(sep2019, {min: 0, max:1000, palette: ['FFFFFF','9999FF','0000FF','000099']},'September');
+
+// Get Area for an Image
+var getArea = function(image, key, feature) {   
+  var areaDict = image.multiply(ee.Image.pixelArea()).reduceRegion({       
+    reducer: ee.Reducer.sum(),        
+    geometry: feature,        
+    scale: 10,       
+    maxPixels: 5e12     
+    
+  });
+  return areaDict.get(key); 
+}
+ 
+var aprarea = ee.Number(getArea(apr2019,'precipitation',geometry));
+print('Total rainfall Area for April 2019: ',aprarea,'mm');
+var mayarea = ee.Number(getArea(may2019,'precipitation',geometry));
+print('Total rainfall Area for May 2019: ',mayarea,'mm');
+var junarea = ee.Number(getArea(jun2019,'precipitation',geometry));
+print('Total rainfall Area for June 2019: ',junarea,'mm');
+var jularea = ee.Number(getArea(jul2019,'precipitation',geometry));
+print('Total Rainfall Area for July 2019: ',jularea,'mm');
+var augarea = ee.Number(getArea(aug2019,'precipitation',geometry));
+print('Total Rainfall Area for August 2019: ',augarea,'mm');
+var separea = ee.Number(getArea(sep2019,'precipitation',geometry));
+print('Total rainfall Area for September 2019: ',separea,'mm');
+
+
+print(aprarea);
+var feature1 = ee.Feature(null, {area: aprarea, month:'April'});
+var feature2 = ee.Feature(null, {area: mayarea, month:'May'});
+var feature3 = ee.Feature(null, {area: junarea, month: 'June'});
+var feature4 = ee.Feature(null, {area: jularea, month: 'July'});
+var feature5 = ee.Feature(null, {area: augarea, month: 'August'});
+var feature6 = ee.Feature(null, {area: separea, month: 'September'});
+
+// Wrap the Feature in a FeatureCollection for export.
+var featureCollection = ee.FeatureCollection([feature1, feature2, feature3, feature4, feature5, feature6]);
+
+// Export the FeatureCollection.
+Export.table.toDrive({
+  collection: featureCollection,
+  description: 'exportTableExample',
+  fileFormat: 'CSV'
+});
+
+print(feature1);
+
+

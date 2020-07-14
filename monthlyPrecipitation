@@ -1,0 +1,143 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var table = ee.FeatureCollection("users/CODES/india_district"),
+    aghar = /* color: #d63000 */ee.Geometry.Polygon(
+        [[[76.59655769521484, 31.595602589360837],
+          [76.59372528249511, 31.593043782593817],
+          [76.5930386369873, 31.59033868187264],
+          [76.59424026662597, 31.587633502607662],
+          [76.59681518728027, 31.585586287713408],
+          [76.60059173757324, 31.586683015571698],
+          [76.60376747304687, 31.587560388564512],
+          [76.60479744130859, 31.591947129606087],
+          [76.60196502858886, 31.594579075088475],
+          [76.59904678518066, 31.59516394176405],
+          [76.5974160020996, 31.595602589360837]]]);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+var india_dist = ee.FeatureCollection(table).filterMetadata('STATE','equals','HIMACHAL PRADESH')
+var himachal_dist = ee.FeatureCollection(india_dist).filterMetadata('DISTRICT','equals','Hamirpur')
+var chirps = ee.ImageCollection("UCSB-CHG/CHIRPS/PENTAD")
+var P = chirps.select("precipitation").filterDate('2013-01-01', '2019-12-31').sum()
+var ima_himachal =P.clip(himachal_dist)
+var ima_aghar = P.clip(aghar)
+Map.centerObject(himachal_dist,18)
+
+// create vizualization parameters
+var viz = {min:800, max:13000, palette:['ffffff','b7f0ae','21f600','0000FF','FDFF92','FF2700','d600ff']};
+
+// add the map
+Map.addLayer(ima_himachal, viz);
+Map.addLayer(ima_aghar,viz)
+
+// set position of panel
+var legend = ui.Panel({
+  style: {
+    position: 'bottom-left',
+    padding: '8px 15px'
+  }
+});
+ 
+ 
+// Create legend title
+var legendTitle = ui.Label({
+  value: 'Rainfall (mm)',
+  style: {
+    fontWeight: 'bold',
+    fontSize: '18px',
+    margin: '0 0 4px 0',
+    padding: '0'
+    }
+});
+
+ // Add the title to the panel
+legend.add(legendTitle); 
+
+// create the legend image
+var lon = ee.Image.pixelLonLat().select('latitude');
+var gradient = lon.multiply((viz.max-viz.min)/100.0).add(viz.min);
+var legendImage = gradient.visualize(viz);
+
+// create text on top of legend
+var panel = ui.Panel({
+    widgets: [
+      ui.Label(viz['max'])
+    ],
+  });
+
+legend.add(panel);
+  
+// create thumbnail from the image
+var thumbnail = ui.Thumbnail({
+  image: legendImage, 
+  params: {bbox:'0,0,10,100', dimensions:'10x200'},  
+  style: {padding: '1px', position: 'bottom-center'}
+});
+
+// add the thumbnail to the legend
+legend.add(thumbnail);
+
+// create text on top of legend
+var panel = ui.Panel({
+    widgets: [
+      ui.Label(viz['min'])
+    ],
+  });
+
+legend.add(panel);
+
+Map.add(legend);
+var panel2 = ui.Panel({style: {width: '400px'}})
+    .add(ui.Label('Click on the map'));
+
+var inspector = ui.Panel([ui.Label('Click to get total Rainfall')]);
+Map.add(inspector);
+
+Map.onClick(function(coords1) {
+  // Show the loading label.
+  inspector.widgets().set(0, ui.Label({
+    value: 'Loading...',
+    style: {color: 'gray'}
+  }));
+
+  // Determine the mean NDVI, a long-running server operation.
+  var point = ee.Geometry.Point(coords1.lon, coords1.lat);
+ // var meanNdvi = ima.reduce('precipitation');
+  var sample = ima_himachal.sample(point, 30);
+  var computedValue = sample.first().get('precipitation');
+
+  // Request the value from the server.
+  computedValue.evaluate(function(result) {
+    // When the server returns the value, show it.
+    inspector.widgets().set(0, ui.Label({
+      value: 'Precipitation: ' + result.toFixed(2),
+    }));
+  });
+});
+
+Map.onClick(function(coords) {
+  // Create or update the location label (the second widget in the panel)
+  var location = 'lon: ' + coords.lon.toFixed(2) + ' ' +
+                 'lat: ' + coords.lat.toFixed(2);
+  panel.widgets().set(1, ui.Label(location));
+
+  // Add a red dot to the map where the user clicked.
+  var point = ee.Geometry.Point(coords.lon, coords.lat);
+  Map.layers().set(1, ui.Map.Layer(point, {color: 'FF0000'}));
+
+  // Create a chart of NDVI over time.
+  var chart = ui.Chart.image.series(chirps.filterDate('2013-01-01', '2019-12-31'), point, ee.Reducer.mean(),200)
+      .setOptions({
+        title: 'Precipitation',
+        vAxis: {title: 'NDVI'},
+        lineWidth: 1,
+        pointSize: 6,
+      });
+
+  // Add (or replace) the third widget in the panel by
+  // manipulating the widgets list.
+  panel2.widgets().set(2, chart);
+});
+
+// Add the panel to the ui.root.
+ui.root.add(panel2);
+
+//Map.centerObject(table)

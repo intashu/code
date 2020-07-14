@@ -1,0 +1,42 @@
+// Import the Sentinel 2 collection as sentinel 2
+// Import the boundary of Cambodia as bnd_cambodia
+var sentinel2 = ee.ImageCollection("COPERNICUS/S2"),
+    bnd_cambodia = ee.FeatureCollection("users/aj/Shapefile/BND_Cambodia");
+
+// Filter the image collection using filterBounds() and filterDate() method.
+// Sort the collection by cloud cover metadata
+// Create the mosaic image and clip it to Cambodia boundary
+var image_dry = sentinel2
+                  .filterBounds(bnd_cambodia)
+                  .filterDate('2018-01-01', '2018-04-30')
+                  .sort('CLOUDY_PIXEL_PERCENTAGE', false)
+                  .map(function(image) {
+                    return image.addBands(image.metadata('system:time_start'));
+                  })
+                  .mosaic()
+                  .clip(bnd_cambodia);
+
+var image_wet = sentinel2.filterDate('2018-06-01', '2018-10-31')
+                  .filterBounds(bnd_cambodia)
+                  .sort('CLOUDY_PIXEL_PERCENTAGE', false)
+                  .map(function(image) {
+                    return image.addBands(image.metadata('system:time_start'));
+                  })
+                  .mosaic()
+                  .clip(bnd_cambodia);
+
+
+// Calculate NDWI                  
+var ndwi_dry = image_dry.normalizedDifference(['B3', 'B8']);
+var ndwi_wet = image_wet.normalizedDifference(['B3', 'B8']);
+
+// Display the true color images
+var trueColor_sentinel2 = {bands: ['B4', 'B3', 'B2'], min: 0, max: 3000};                  
+Map.addLayer(image_dry, trueColor_sentinel2, '2018 Dry season true color');
+Map.addLayer(image_wet, trueColor_sentinel2, '2018 Wet season true color');
+
+// Display the NDWI images with a color palette (feel free to make a better one)
+var waterPalette = ['red', 'yellow', 'green', 'blue'];
+Map.addLayer(ndwi_dry, {min: -1, max: 0.5, palette: waterPalette}, '2018 Dry season NDWI');
+Map.addLayer(ndwi_wet, {min: -1, max: 0.5, palette: waterPalette}, '2018 Wet season NDWI');
+Map.centerObject(bnd_cambodia, 8);

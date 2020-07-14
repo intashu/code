@@ -1,0 +1,18 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var india = ee.FeatureCollection("users/CODES/india_state"),
+    raingaze = ee.FeatureCollection("users/CODES/Precipitation_Intersect"),
+    Aghar = /* color: #d63000 */ee.Geometry.MultiPoint(),
+    climate = ee.FeatureCollection("users/CODES/Climate_Intersect"),
+    geometry2 = /* color: #d63000 */ee.Geometry.Point([76.41638889, 31.69302778]),
+    rain_station = ee.FeatureCollection("users/CODES/himachal_rstat");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+
+Map.addLayer(india)
+var himachal = ee.FeatureCollection(india).filterMetadata('STATE','equals','HIMACHAL PRADESH');
+Map.addLayer(himachal)
+print(himachal)
+var hima_rain = ee.FeatureCollection(raingaze).filterBounds(himachal)
+Map.addLayer(hima_rain)
+var hima_cli = ee.FeatureCollection(climate).filterBounds(himachal)
+Map.addLayer(hima_cli)
+Map.addLayer(rain_station,{pallete:'red'},"himachal rain gaauze station")

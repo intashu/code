@@ -1,0 +1,19 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var chirps = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY"),
+    tunga = ee.FeatureCollection("users/Jyoti/HydrologicalModellingProject/lowetungaSHP");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+var precip = chirps.filterDate('2000-01-01','2008-12-31');
+
+print(tunga.select([]));
+tunga.select([]).evaluate(function (featureCollection) {
+  featureCollection.features.forEach(function (feature) {
+    print(ui.Chart.image.series(
+        precip.limit(5000),ee.Geometry(feature.geometry),ee.Reducer.mean(),1000).setOptions({
+      title: 'gp_1: PPT time series ' + feature.id,
+      hAxis: {title: 'Day'},
+      vAxis:{title:'rainfall (mm/day)'}
+    }));
+  });
+});
+Map.addLayer(tunga);
+Map.centerObject(tunga);

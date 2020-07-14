@@ -1,0 +1,179 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = /* color: #ff3110 */ee.Feature(
+        ee.Geometry.Point([86.9306032592774, 26.529567933153775]),
+        {
+          "Koshi_Barrage": 1,
+          "system:index": "0"
+        });
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// // source: https://developers.google.com/earth-engine/tutorial_global_surface_water_04
+
+// //Import images from GSW dataset and store it in variable named "gsw"
+
+var gsw = ee.Image('JRC/GSW1_0/GlobalSurfaceWater'); 
+var occurrence = gsw.select('occurrence');
+var change = gsw.select("change_abs");
+var transition = gsw.select('transition');
+var roi = ee.Geometry.Polygon(
+        [[[105.531921, 10.412183],
+          [105.652770, 10.285193],
+          [105.949401, 10.520218],
+          [105.809326, 10.666006]]]);
+
+// //////////////////////////////////////////////////////////////
+// // Adding Visualization Parameters
+// //////////////////////////////////////////////////////////////
+// /* The visualization parameters stored in JSON structure VIS_OCCURRENCE indicate that red should be used for a minimum value of 0% and blue for a maximum value of 100%. 
+// The addition of .updateMask(occurrence.divide(100)) causes the opacity/transparency of the pixels to be set based on the occurrence value. */
+
+var VIS_OCCURRENCE = {
+    min: 0,
+    max: 100,
+    palette: ['red', 'blue']
+};
+var VIS_CHANGE = {
+    min: -50,
+    max: 50,
+    palette: ['red', 'black', 'limegreen']
+};
+
+// // Creating a Threshold Layer
+// /* The water occurrence image contains information on how often water is expected using a range of values from 0 to 100%. 
+// However, it is often useful to define a binary water layer (i.e. "water" vs. "non-water") based on a certain percentage of occurrence (i.e. a threshold value). We will use this simple binary layer as a clean background layer over which other GSW layers can be placed. 
+// Creating this threshold layer can be done using the following statements, which uses a threshold value of 90% to separate water and non-water. */
+var VIS_WATER_MASK = {
+  palette: ['white', 'black']
+};
+
+
+// // Create a feature for a transition class that includes the area covered.
+function createFeature(transition_class_stats) {
+  transition_class_stats = ee.Dictionary(transition_class_stats);
+  var class_number = transition_class_stats.get('transition_class_value');
+  var result = {
+      transition_class_number: class_number,
+      transition_class_name: lookup_names.get(class_number),
+      transition_class_palette: lookup_palette.get(class_number),
+      area_m2: transition_class_stats.get('sum')
+  };
+  return ee.Feature(null, result);   // Creates a feature without a geometry.
+}
+
+// Create a JSON dictionary that defines piechart colors based on the transition class palette.
+// https://developers.google.com/chart/interactive/docs/gallery/piechart
+function createPieChartSliceDictionary(fc) {
+  return ee.List(fc.aggregate_array("transition_class_palette"))
+    .map(function(p) { return {'color': p}; }).getInfo();
+}
+
+// /* An example of the Occurrence Change Intensity dataset is shown below for the Koshi River. 
+// Increases in water occurrence are shown in green and decreases are shown in red. 
+// Black areas are those areas where there is no significant change in the water occurrence during the 1984 -2015 period. 
+// The intensity of the color represents the degree of change (as a percentage). 
+// For example, bright red areas show greater loss of water than light red areas. 
+// Some areas appear grey in the maps, these are locations where there is insufficient data to compute meaningful change statistics. 
+ 
+// */
+
+//////////////////////////////////////////////////////////////
+// Calculations
+//////////////////////////////////////////////////////////////
+
+// Create a dictionary for looking up names of transition classes.
+var lookup_names = ee.Dictionary.fromLists(
+    ee.List(gsw.get('transition_class_values')).map(ee.String),
+    gsw.get('transition_class_names')
+);
+// Create a dictionary for looking up colors of transition classes.
+var lookup_palette = ee.Dictionary.fromLists(
+    ee.List(gsw.get('transition_class_values')).map(ee.String),
+    gsw.get('transition_class_palette')
+);
+
+// Create a water mask layer, and set the image mask so that non-water areas are transparent.
+var water_mask = occurrence.gt(90).mask(1);
+
+// Generate a histogram object and print it to the console tab.
+var histogram = ui.Chart.image.histogram({
+  image: change,
+  region: roi,
+  scale: 30,
+  minBucketWidth: 10
+});
+histogram.setOptions({
+  title: 'Histogram of surface water change intensity.'
+});
+print(histogram);
+
+// Summarize transition classes in a region of interest.
+var area_image_with_transition_class = ee.Image.pixelArea().addBands(transition);
+var reduction_results = area_image_with_transition_class.reduceRegion({
+  reducer: ee.Reducer.sum().group({
+    groupField: 1,
+    groupName: 'transition_class_value',
+  }),
+  geometry: roi,
+  scale: 30,
+  bestEffort: true,
+});
+print('reduction_results', reduction_results);
+
+var roi_stats = ee.List(reduction_results.get('groups'));
+
+var transition_fc = ee.FeatureCollection(roi_stats.map(createFeature));
+print('transition_fc', transition_fc);
+
+// Add a summary chart.
+var transition_summary_chart = ui.Chart.feature.byFeature({
+    features: transition_fc,
+    xProperty: 'transition_class_name',
+    yProperties: ['area_m2', 'transition_class_number']
+  })
+  .setChartType('PieChart')
+  .setOptions({
+    title: 'Summary of transition class areas',
+    slices: createPieChartSliceDictionary(transition_fc),
+    sliceVisibilityThreshold: 0  // Don't group small slices.
+  });
+print(transition_summary_chart);
+
+//////////////////////////////////////////////////////////////
+// Map Layers
+//////////////////////////////////////////////////////////////
+
+Map.setCenter(86.9282,26.5288,12); // Koshi Nepal
+
+Map.addLayer({
+  eeObject: water_mask,
+  visParams: VIS_WATER_MASK,
+  name: '90% occurrence water mask',
+  shown: false
+});
+Map.addLayer({
+  eeObject: occurrence.updateMask(occurrence.divide(100)),
+  name: "Water Occurrence (1984-2015)",
+  visParams: VIS_OCCURRENCE,
+  shown: false
+});
+Map.addLayer({
+  eeObject: change,
+  visParams: VIS_CHANGE,
+  name: 'occurrence change intensity',
+  shown: false
+});
+Map.addLayer({
+  eeObject: transition,
+  name: 'Transition classes (1984-2015)',
+  shown: false
+});
+
+// Create a circle by drawing a 20000 meter buffer around a point.
+var roi = ee.Geometry.Point([86.9306, 26.5296]).buffer(10000);
+
+Map.addLayer({
+  eeObject: occurrence.updateMask(occurrence.divide(100))
+  .clip(roi),
+  name: "Clipped",
+  visParams: VIS_OCCURRENCE,
+  //shown: false
+});

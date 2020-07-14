@@ -1,0 +1,317 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var biotopoCollection = ee.FeatureCollection("projects/servir-wa/services/locusts_west_africa/biotopo_2008"),
+    SWARMS_LINK = 
+    /* color: #d63000 */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[-52.434066014661056, -15.812398723446488],
+          [-52.434066014661056, -23.159610568850955],
+          [-43.139632420911056, -23.159610568850955],
+          [-43.139632420911056, -15.812398723446488]]], null, false);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+
+var MAX_TEMPORAL_DISTANCE = 60; // Days
+var MAX_TEMPORAL_UNIT = 'day';
+var LANDSAT_VIS = {min: 0, max: 2500, bands: ['B3', 'B2', 'B1']};
+var LANDSAT_SCALE = 30;
+var SAMPLING_SCALE = 30;
+var LANDSAT_BANDS = ["B1", "B2", "B3", "B4", "B5", "B7"];
+var LANDSAT_QA = 'pixel_qa';
+var LANDSAT_7_ID = 'LANDSAT/LE07/C01/T1_SR';
+var LANDSAT_8_ID = 'LANDSAT/LC08/C01/T1_SR';
+var DATE_CUTOFF_BEGIN = '2015-01-01'; // Don't get dates before the start of GFS
+var TIME_LAG = -10;
+var TIME_LAG_UNIT = 'day';
+var WIND_ADVANCE = 5;
+var TRAINING_BANDS = LANDSAT_BANDS;
+var LABEL_BAND = 'class'
+//var SWARMS_LINK = 'ft:1c-3VayDG853D5VNfEtWmbOdERGt-3II1j5aS9VCc';
+var LOCUST_TYPES = [
+  'GREG_HOPPER', 'SOL_ADULT', 'GREG_ADULT', 'SOL_HOPPER'
+];
+var RAMSES_TIME_PROP = 'START_DATE';
+// Define various band names
+var NDVI_BANDS = ['B5', 'B4']; // For landsat 8
+var TEMPERATURE_BAND = 'LST_Day_1km';
+var PRECIPITATION_BAND = 'HQprecipitation';
+var RH_BAND = 'Qair_f_inst' // XXX: Placeholder using GLDAS
+var ACTUAL_WIND_BAND = 'Wind_f_inst'; // XXX: GLD1as Placeholder
+var VEGETATION_BAND = 'ndvi'
+var FORECAST_WIND_BANDS = ['u_component_of_wind_10m_above_ground', 'u_component_of_wind_10m_above_ground'];
+var CLIMATE_FORECAST_BANDS = [
+  'temperature_2m_above_ground',
+  'relative_humidity_2m_above_ground'
+]
+var WIND_FORECAST_BAND = 'u_component_of_wind_10m_above_ground' // We're cheating for now; do the actual calculations later
+var PRECIPITATION_FORECAST_BAND = 'total_precipitation_surface'; // This is summed so we track it different
+var PREDICTION_PREDICTORS = [ // Selector to use when classifying the prediction image
+    'intercept',
+    'temperature_2m_above_ground',
+    'total_precipitation_surface',
+    'relative_humidity_2m_above_ground',
+    'u_component_of_wind_10m_above_ground'
+];
+var PREDICTORS = [
+  'intercept',
+  TEMPERATURE_BAND,
+  PRECIPITATION_BAND,
+  RH_BAND,
+  ACTUAL_WIND_BAND,
+  // VEGETATION_BAND // XXX: Veg band isn't adding right, so drop it for now
+]
+var PLACEHOLDER_ID = 'NASA/GLDAS/V021/NOAH/G025/T3H'
+var RH_ID = PLACEHOLDER_ID;
+var WIND_SPEED_ID = PLACEHOLDER_ID
+var TRAINING_VALIDATION_SPLIT = 0.7;
+/*
+  Define functions
+*/
+// Convert longitude and latitude bands to a geometry.
+var toPoints = function(fc) {
+  return ee.FeatureCollection(fc).map(function(f) {
+    f = ee.Feature(f)
+    return ee.Feature(
+      ee.Geometry.Point([f.get('longitude'), f.get('latitude')]),
+      f.toDictionary().remove(['longitude', 'latitude']))
+  })
+}
+/*
+  Datasets
+*/
+// Areas of interest
+
+// Spectral bands, for calculating vegetation
+// var spectralCollection = ee.ImageCollection('LANDSAT/LE07/C01/T1_SR'); // Landsat 7
+var vegetationCollection = ee.ImageCollection(LANDSAT_8_ID); // Landsat 8
+// For precipitation
+var precipCollection = ee.ImageCollection('NASA/GPM_L3/IMERG_V06');
+var rhCollection = ee.ImageCollection(RH_ID);
+var windCollection = ee.ImageCollection(WIND_SPEED_ID);
+// For temperature
+var tempCollection = ee.ImageCollection('MODIS/006/MOD11A1')
+// To forecast temp, precip, RH, and wind speed
+var forecastCollection = ee.ImageCollection('NOAA/GFS0P25');
+// RAMSES locust data
+var locustCollection = ee.FeatureCollection(SWARMS_LINK);
+// Limit the RAMSES data to our biotopes
+locustCollection = locustCollection.filterBounds(biotopoCollection)
+// Set the time_start property using another property in the collection, so that
+// we can use filterDate, etc.
+function setPropertyAsTime(collection, propertyName) {
+  return collection.map(function(feature) {
+    return feature.set('system:time_start', feature.get(propertyName))
+  })
+}
+locustCollection = setPropertyAsTime(locustCollection, 'START_DATE')
+locustCollection = locustCollection.filterDate(DATE_CUTOFF_BEGIN, '2018-01-01')
+// Map all of the landsat images to their NDVI
+function getNdvi(image) {
+  return image.normalizedDifference(NDVI_BANDS).select(['nd'], ['ndvi'])
+}
+vegetationCollection = vegetationCollection.map(getNdvi);
+/*
+  Get training data
+*/
+function sampleForCollection(collection){
+  return ee.FeatureCollection(collection)
+  .map(function(feature) {
+    // Construct the dateRange we're going to use to get our lagged data
+    var featureDate = ee.Date(feature.get('system:time_start'));
+    var lagDate = featureDate.advance(TIME_LAG, TIME_LAG_UNIT);
+    var advDate = featureDate.advance(WIND_ADVANCE, TIME_LAG_UNIT);
+    // First get a constant intercept image, then add all of the assorted bands
+    feature = ee.Image(1).rename('intercept')
+      .addBands(
+        // Get our temperature
+        ee.ImageCollection(tempCollection)
+          .filterBounds(feature.geometry())
+          .filterDate(lagDate, featureDate) // Only get images w/in our lag range
+          // .limit(10) // Just for testing. Find a better way to limit # of inputs later
+          .select(TEMPERATURE_BAND)
+          .max() // Get the max temperature
+      )
+      .addBands(
+        // Add precip
+        ee.ImageCollection(precipCollection)
+          .filterBounds(feature.geometry())
+          .filterDate(lagDate, featureDate) // Only get images w/in our lag range
+          // .limit(10) // Just for testing. Find a better way to limit # of inputs later
+          .select(PRECIPITATION_BAND)
+          .sum() // Get the max temperature
+      )
+      .addBands(
+        // Add vegetation
+        ee.ImageCollection(vegetationCollection)
+          .filterBounds(feature.geometry())
+          .filterDate(lagDate, featureDate) // Only get images w/in our lag range
+          // .limit(10) // Just for testing. Find a better way to limit # of inputs later
+          .select(VEGETATION_BAND)
+          .max()
+      )
+      .addBands(
+        // Add RH
+        ee.ImageCollection(rhCollection)
+          .filterBounds(feature.geometry())
+          .filterDate(lagDate, featureDate) // Only get images w/in our lag range
+          .select(RH_BAND)
+          .max() // Get the max temperature
+      )
+      .addBands(
+        // Add wind speed
+        ee.ImageCollection(windCollection)
+          .filterBounds(feature.geometry())
+          .filterDate(featureDate, advDate) // Only get images w/in our lag range
+          // .limit(10) // Just for testing. Find a better way to limit # of inputs later
+          .select(ACTUAL_WIND_BAND)
+          .max() // Get the max temperature
+      )
+      .addBands(ee.Image.pixelLonLat())
+      .sampleRegions({
+        collection: ee.FeatureCollection(feature),
+        scale: SAMPLING_SCALE
+      })
+    feature = toPoints(feature) // T.T we have to do this to retain feature geometries
+    return feature
+  }).flatten()
+}
+// Assorted diagnostic stuff. Remove later.
+var dataCollection = sampleForCollection(locustCollection.filterBounds(biotopoCollection.first().geometry()))
+// print(locustCollection.filterBounds(biotopoCollection.first().geometry()).size())
+print('dataCollection',dataCollection)
+Map.addLayer(dataCollection, {}, 'dataCollection')
+// print(dataCollection.first())
+// Map.addLayer(ee.Feature(dataCollection.first()))
+// print(biotopoCollection.first().geometry())
+// Map.addLayer(biotopoCollection.first().geometry())
+// Map.addLayer(dataCollection.filterBounds(biotopoCollection.first().geometry()))
+/*
+  Perform logistic regression on all of our BASH categories
+*/
+// Define logit regression samples
+// Logit link function between probability and predictors.
+var logitLink = function(theta) {
+  return theta.exp().divide(theta.exp().add(1));
+};
+// Probit link function between probability and predictors.
+var probitLink = function(theta) {
+  var half = ee.Number(0.5);
+  // https://en.wikipedia.org/wiki/Error_function
+  return theta.divide(Math.sqrt(2)).erf().multiply(half).add(half);
+};
+// Train the regression algorithm.  It expects a link function and
+// the number of iterations to perform.  A measure of change in the
+// ceofficients estimate is printed at each iteration.  It returns
+// a Px1 array of coefficients.
+var train = function(trainingFeatures, labelClass, link, nIters) {
+  print('trainingFeatures', trainingFeatures)
+  var beta = ee.Array([[0]]).repeat(0, PREDICTORS.length);
+  for (var i=0; i<nIters; i++) {
+    var x = ee.Array(ee.FeatureCollection(trainingFeatures).reduceColumns({
+      reducer: ee.Reducer.toList().repeat(PREDICTORS.length),
+      selectors: PREDICTORS
+    }).get('list')).transpose();
+    var y = ee.Array(ee.FeatureCollection(trainingFeatures).aggregate_array(labelClass));
+    var theta = x.matrixMultiply(beta);
+    var pi = ee.Array(link(theta));
+    var w = pi.multiply(pi.multiply(-1).add(1)).matrixToDiag();
+    var v = x.transpose().matrixMultiply(w).matrixMultiply(x).matrixInverse();
+    var z = v.matrixMultiply(x.transpose())
+        .matrixMultiply(ee.Array.cat([y], 1).subtract(pi));
+    var delta = z.transpose().matrixMultiply(z).sqrt().get([0, 0]);
+    // print(delta);
+    beta = beta.add(ee.Array.cat([z], 1));
+  }
+  return beta;
+};
+// Convert the Px1 array of coefficients into a one band image
+// that represents probability.
+var betaToImage = function(beta, image) {
+  var betaImage = ee.Image(beta.project([0])).arrayFlatten([PREDICTORS]);
+  print("betaImage", betaImage)
+  // Add the bands from the images that we used to do our predictions
+  var predictorsImage = image
+    .addBands(
+      ee.Image(1).rename("intercept")
+    )
+    .select(PREDICTORS)
+  print('betaImage', betaImage)
+  print('predictorsImage', predictorsImage)
+  var thetaImage = predictorsImage.multiply(betaImage).reduce('sum');
+  var piImage = ee.Image(logitLink(thetaImage));
+  return piImage;
+};
+// Function to split a dataset into training / validation. Returns a feature with
+// the properties "training" and "validation"
+function trainTestSplit(collection) {
+  // Split the trainingFeatures into training and validation sets
+  var withRandom = collection.randomColumn('random');
+  var trainingFeatures = withRandom.filter(ee.Filter.lt('random', TRAINING_VALIDATION_SPLIT));
+  var validationFeatures = withRandom.filter(ee.Filter.gte('random', TRAINING_VALIDATION_SPLIT));
+  return ee.Feature(null, {
+    training: trainingFeatures,
+    validation: validationFeatures
+  })
+}
+// Calculate our weights for gregarious hoppers
+var train1 = trainTestSplit(dataCollection).get('training');
+print(ee.FeatureCollection(train1).first())
+var logitBeta = train(ee.FeatureCollection(train1), LOCUST_TYPES[0], logitLink, 10);
+print('logitBeta', logitBeta)
+/*
+  Get our future data
+*/
+function getPredictionImage(geometry) {
+  // var now = ee.Date(new Date()).millis();
+  // Trying to see if we can take advantage of caching
+  var now = ee.Date('2017-01-01').millis();
+  // Get when we want our forecast to stop in millis
+  var forecastEnd = ee.Date(now).advance(ee.Number(TIME_LAG).abs(), TIME_LAG_UNIT).millis()
+  var windEnd = ee.Date(now).advance(ee.Number(TIME_LAG).abs().add(WIND_ADVANCE), TIME_LAG_UNIT).millis()
+  // Get all images in the forecastCollection that have forecasts in the forecast
+  // buffer
+  var climateForecast = forecastCollection.filter(
+    ee.Filter.rangeContains('forecast_time', now, forecastEnd)
+  ).filterBounds(geometry);
+  var windForecast = forecastCollection.filter(
+    ee.Filter.rangeContains('forecast_time', forecastEnd, windEnd)
+  ).filterBounds(geometry);
+  var predictionImage = ee.Image(1).rename('intercept')
+    .addBands(
+      // Get our temperature
+      ee.ImageCollection(climateForecast)
+        .limit(10) // Just for testing purposes / sanity.
+        .select(CLIMATE_FORECAST_BANDS, [TEMPERATURE_BAND, RH_BAND]) // Rename this, bc we're cheating
+        .max() // Get the max temperature
+    )
+    .addBands(
+      // Add precip
+      ee.ImageCollection(climateForecast)
+        .limit(10) // Just for testing purposes / sanity.
+        .select([PRECIPITATION_FORECAST_BAND], [PRECIPITATION_BAND])
+        .sum() // Get the total rainfall
+    )
+    // .addBands(
+    //   // Add vegetation
+    //   ee.ImageCollection(vegetationCollection)
+    //     .filterBounds(feature.geometry())
+    //     .filterDate(lagDate, featureDate) // Only get images w/in our lag range
+    //     .select(VEGETATION_BAND)
+    //     .max()
+    // )
+    .addBands(
+      // Add wind
+      ee.ImageCollection(windForecast)
+        .limit(10) // Just for testing purposes / sanity.
+        .select([WIND_FORECAST_BAND], [ACTUAL_WIND_BAND])
+        .max() // Get the max temperature
+    )
+  return predictionImage.clip(geometry)
+}
+var predictionImage = getPredictionImage(biotopoCollection.first().geometry())
+Map.addLayer(predictionImage, {}, 'predictionImage')
+var predictedImage = betaToImage(logitBeta, predictionImage)
+Map.addLayer(predictedImage, {}, 'predictedImage')

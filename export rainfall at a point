@@ -1,0 +1,64 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var fg_points = /* color: #d63000 */ee.FeatureCollection(
+        [ee.Feature(
+            ee.Geometry.Point([81.17422925280962, 26.74156777447156]),
+            {
+              "system:index": "0"
+            }),
+        ee.Feature(
+            ee.Geometry.Point([80.42715894030962, 26.407496130416362]),
+            {
+              "system:index": "1"
+            }),
+        ee.Feature(
+            ee.Geometry.Point([78.20792065905962, 27.094223912896823]),
+            {
+              "system:index": "2"
+            }),
+        ee.Feature(
+            ee.Geometry.Point([77.26309644030962, 28.532297534951848]),
+            {
+              "system:index": "3"
+            }),
+        ee.Feature(
+            ee.Geometry.Point([82.77823315905962, 25.339934803589628]),
+            {
+              "system:index": "4"
+            })]);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Set years and month
+var startYear = 1994;
+var endYear = 2017;
+var years = ee.List.sequence(startYear, endYear);
+var months = ee.List.sequence(1,12);
+// load the image collection
+var Daily = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY");
+
+// make monthly summed mosaics
+// loop over the years and months to get summed monthly images
+var byMonth = ee.ImageCollection(ee.FeatureCollection(years.map(function(y){
+  var yearCollection = Daily.filter(ee.Filter.calendarRange(y, y, 'year'));
+  var byYear = ee.ImageCollection.fromImages(
+    months.map(function(m) {
+      var summedImage = yearCollection.filter(ee.Filter.calendarRange(m, m, 'month'))
+                  .reduce(ee.Reducer.sum()); 
+      var date = ee.Date.fromYMD(y, m, 1).format("MM_dd_YYYY");
+      return summedImage.set('system:time_start', ee.Date.fromYMD(y, m, 1)).rename(date);
+      //.set('month', m).set('year', y); // eventually set year and month 
+  }));
+  return byYear;
+})).flatten());
+
+// filter the empty one out
+var outputMonthly = byMonth.filter(ee.Filter.listContains('system:band_names', 'constant').not())
+                    .sort('system:time_start').toBands();
+print(outputMonthly);
+
+var features = outputMonthly.reduceRegions(fg_points, ee.Reducer.first(), 30);
+print(features);
+
+
+Export.table.toDrive(features,
+"PrecipitationHTL",
+"PrecipitationHTL",
+"PrecipitationHTL");
